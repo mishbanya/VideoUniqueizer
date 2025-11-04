@@ -2,6 +2,7 @@
 import os
 import sys
 import random
+import tempfile
 from typing import List
 from PyQt5.QtCore import Qt, QPoint, pyqtSignal
 from PyQt5.QtGui import QFontMetrics, QIcon
@@ -128,6 +129,20 @@ class MainProcessingWidget(QWidget):
         cl = QVBoxLayout()
         common.setLayout(cl)
         sm_layout = QHBoxLayout()
+
+        split_layout = QHBoxLayout()
+        self.split_checkbox = QCheckBox("Нарезать видео перед обработкой")
+        self.split_checkbox.setToolTip("Если включено, каждое видео будет нарезано на части перед обработкой.")
+        split_layout.addWidget(self.split_checkbox)
+        split_layout.addStretch()
+        self.split_duration_spin = QSpinBox()
+        self.split_duration_spin.setRange(1, 600)
+        self.split_duration_spin.setValue(20)
+        self.split_duration_spin.setFixedWidth(80)
+        split_layout.addWidget(QLabel("Длительность (сек):"))
+        split_layout.addWidget(self.split_duration_spin)
+        cl.addLayout(split_layout)
+
         self.strip_meta_checkbox = QCheckBox("Очистить метаданные")
         self.strip_meta_checkbox.setChecked(True)
         sm_layout.addWidget(self.strip_meta_checkbox)
@@ -441,15 +456,41 @@ class VideoUnicApp(QMainWindow):
             self.setStyleSheet("")
 
     def start_processing(self):
+        out_dir = QFileDialog.getExistingDirectory(self, "Выберите папку для сохранения результатов")
+        if not out_dir:
+            return
+
         video_files = [self.main_widget.video_list_widget.item(i).data(Qt.UserRole)
                        for i in range(self.main_widget.video_list_widget.count())]
         if not video_files:
             QMessageBox.warning(self, "Нет файлов", "Добавьте хотя бы один видео или GIF файл.")
             return
 
-        out_dir = QFileDialog.getExistingDirectory(self, "Выберите папку для сохранения результатов")
-        if not out_dir:
-            return
+        # --- Нарезка видео перед обработкой ---
+        temp_split_dir = None
+        if self.main_widget.split_checkbox.isChecked():
+            from utils.ffmpeg_utils import split_video
+
+            # Создаём временную папку внутри выбранного каталога
+            temp_split_dir = os.path.join(out_dir, "temp")
+            os.makedirs(temp_split_dir, exist_ok=True)
+
+            duration = self.main_widget.split_duration_spin.value()
+            split_files = []
+
+            for original_path in video_files:
+                try:
+                    # Имя шаблона для выходных частей — случайное
+                    split_files = split_video(original_path, temp_split_dir, duration)
+
+                except Exception as e:
+                    print(self, "Ошибка нарезки", f"Не удалось нарезать {original_path}:\n{e}")
+
+            if not split_files:
+                QMessageBox.warning(self, "Ошибка", "Не удалось нарезать видео. Обработка отменена.")
+                return
+
+            video_files = split_files  # заменяем исходный список на нарезанные части
 
         strip_metadata = self.main_widget.strip_meta_checkbox.isChecked()
         output_format = self.main_widget.output_format_combo.currentText()
@@ -523,6 +564,13 @@ class VideoUnicApp(QMainWindow):
             self.main_widget.status_label.setText(f"Обрабатываю: ...{fname[-30:]}")
 
     def on_done(self):
+        try:
+            temp_split_dir = os.path.join(self.thread.out_dir, "temp")
+            if os.path.exists(temp_split_dir):
+                import shutil
+                shutil.rmtree(temp_split_dir)
+        except Exception as e:
+            print(f"[WARN] Не удалось удалить временные файлы: {e}")
         QMessageBox.information(self, "Готово", "Обработка успешно завершена!")
         self.main_widget.progress_label.setText("Готово")
         self.main_widget.progress_bar.setValue(100)

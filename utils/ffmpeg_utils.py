@@ -4,6 +4,7 @@ import subprocess
 import random
 import platform
 import shlex
+import uuid
 import shutil
 import ffmpeg
 from typing import List, Optional, Tuple
@@ -133,6 +134,37 @@ def get_video_dimensions(path: str) -> Tuple[int, int]:
         print(f"Unexpected error getting dimensions for '{os.path.basename(path)}': {e}")
         return 0, 0
 
+def split_video(input_path: str, output_dir: str, chunk_duration: int):
+    """
+    Разбивает видео на части по chunk_duration секунд.
+    Возвращает список путей к нарезанным файлам.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    name = os.path.splitext(os.path.basename(input_path))[0]
+
+    output_pattern = os.path.join(output_dir, f"{name}_part_%03d.mp4")
+
+    cmd = [
+        FFMPEG_PATH,
+        "-hide_banner",
+        "-loglevel", "error",
+        "-i", input_path,
+        "-c", "copy",
+        "-f", "segment",
+        "-segment_time", str(chunk_duration),
+        "-reset_timestamps", "1",
+        output_pattern
+    ]
+
+    subprocess.run(cmd, check=True)
+
+    # Соберём список частей
+    parts = sorted([
+        os.path.join(output_dir, f)
+        for f in os.listdir(output_dir)
+        if f.startswith(name + "_part_")
+    ])
+    return parts
 
 def process_single(
         in_path: str,
