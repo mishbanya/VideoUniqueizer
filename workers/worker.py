@@ -3,7 +3,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 import os
 import random
 from typing import List, Optional
-from utils.ffmpeg_utils import process_single, get_video_dimensions
+from VideoUniqueizer.utils.ffmpeg_utils import process_single, get_video_dimensions
 
 
 class Worker(QThread):
